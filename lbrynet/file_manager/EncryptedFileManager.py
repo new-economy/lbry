@@ -8,7 +8,7 @@ from twisted.internet import defer, task, reactor
 from twisted.python.failure import Failure
 from lbrynet.core.Error import InvalidStreamDescriptorError
 from lbrynet.reflector.reupload import reflect_file
-from lbrynet.core.PaymentRateManager import NegotiatedPaymentRateManager
+# from lbrynet.core.PaymentRateManager import NegotiatedPaymentRateManager
 from lbrynet.file_manager.EncryptedFileDownloader import ManagedEncryptedFileDownloader
 from lbrynet.file_manager.EncryptedFileDownloader import ManagedEncryptedFileDownloaderFactory
 from lbrynet.core.StreamDescriptor import EncryptedFileStreamType, get_sd_info, validate_descriptor
@@ -129,12 +129,12 @@ class EncryptedFileManager(object):
     def _start_lbry_files(self):
         files = yield self.session.storage.get_all_lbry_files()
         b_prm = self.session.base_payment_rate_manager
-        payment_rate_manager = NegotiatedPaymentRateManager(b_prm, self.session.blob_tracker)
+        # payment_rate_manager = NegotiatedPaymentRateManager(b_prm, self.session.blob_tracker)
 
         log.info("Starting %i files", len(files))
         dl = []
         for file_info in files:
-            dl.append(self._start_lbry_file(file_info, payment_rate_manager))
+            dl.append(self._start_lbry_file(file_info, b_prm))
 
         yield defer.DeferredList(dl)
 
