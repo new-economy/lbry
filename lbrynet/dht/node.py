@@ -131,7 +131,7 @@ class Node(MockKademliaHelper):
 
         # Create k-buckets (for storing contacts)
         if routingTableClass is None:
-            self._routingTable = routingtable.OptimizedTreeRoutingTable(self.node_id, self.clock.seconds)
+            self._routingTable = routingtable.TreeRoutingTable(self.node_id, self.clock.seconds)
         else:
             self._routingTable = routingTableClass(self.node_id, self.clock.seconds)
 
