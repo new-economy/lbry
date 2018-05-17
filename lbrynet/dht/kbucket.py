@@ -52,12 +52,12 @@ class KBucket(object):
         @param count: The amount of contacts to return (if 0 or less, return
                       all contacts)
         @type count: int
-        @param excludeContact: A contact to exclude; if this contact is in
+        @param excludeContact: A node id to exclude; if this contact is in
                                the list of returned values, it will be
                                discarded before returning. If a C{str} is
                                passed as this argument, it must be the
                                contact's ID.
-        @type excludeContact: kademlia.contact.Contact or str
+        @type excludeContact: str
 
 
         @raise IndexError: If the number of requested contacts is too large
@@ -95,11 +95,10 @@ class KBucket(object):
         return contactList
 
     def removeContact(self, contact):
-        """ Remove given contact from list
+        """ Remove the contact from the bucket
 
-        @param contact: The contact to remove, or a string containing the
-                        contact's node ID
-        @type contact: kademlia.contact.Contact or str
+        @param contact: The contact to remove
+        @type contact: dht.contact._Contact
 
         @raise ValueError: The specified contact is not in this bucket
         """
