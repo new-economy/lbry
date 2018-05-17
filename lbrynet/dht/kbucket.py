@@ -1,5 +1,9 @@
+import logging
 import constants
+from distance import Distance
 from error import BucketFull
+
+log = logging.getLogger(__name__)
 
 
 class KBucket(object):
@@ -28,7 +32,7 @@ class KBucket(object):
                                             already
 
         @param contact: The contact to add
-        @type contact: kademlia.contact.Contact
+        @type contact: dht.contact._Contact
         """
         if contact in self._contacts:
             # Move the existing contact to the end of the list
@@ -42,11 +46,21 @@ class KBucket(object):
             raise BucketFull("No space in bucket to insert contact")
 
     def getContact(self, contactID):
-        """ Get the contact specified node ID"""
-        index = self._contacts.index(contactID)
-        return self._contacts[index]
+        """Get the contact specified node ID
 
-    def getContacts(self, count=-1, excludeContact=None):
+        @raise IndexError: raised if the contact is not in the bucket
+
+        @param contactID: the node id of the contact to retrieve
+        @type contactID: str
+
+        @rtype: dht.contact._Contact
+        """
+        for contact in self._contacts:
+            if contact.id == contactID:
+                return contact
+        raise IndexError(contactID)
+
+    def getContacts(self, count=-1, excludeContact=None, sort_distance_to=None):
         """ Returns a list containing up to the first count number of contacts
 
         @param count: The amount of contacts to return (if 0 or less, return
@@ -66,33 +80,35 @@ class KBucket(object):
                 If no contacts are present an empty is returned
         @rtype: list
         """
+        contacts = [contact for contact in self._contacts if contact.id != excludeContact]
+
         # Return all contacts in bucket
         if count <= 0:
-            count = len(self._contacts)
+            count = len(contacts)
 
         # Get current contact number
-        currentLen = len(self._contacts)
+        currentLen = len(contacts)
 
         # If count greater than k - return only k contacts
         if count > constants.k:
             count = constants.k
 
-        # Check if count value in range and,
-        # if count number of contacts are available
         if not currentLen:
-            contactList = list()
+            return contacts
 
-        # length of list less than requested amount
-        elif currentLen < count:
-            contactList = self._contacts[0:currentLen]
-        # enough contacts in list
+        if sort_distance_to is False:
+            pass
         else:
-            contactList = self._contacts[0:count]
+            sort_distance_to = sort_distance_to or self._node_id
+            contacts.sort(key=lambda c: Distance(sort_distance_to)(c.id))
 
-        if excludeContact in contactList:
-            contactList.remove(excludeContact)
+        return contacts[:min(currentLen, count)]
 
-        return contactList
+    def getBadOrUnknownContacts(self):
+        contacts = self.getContacts(sort_distance_to=False)
+        results = [contact for contact in contacts if contact.contact_is_good is False]
+        results.extend(contact for contact in contacts if contact.contact_is_good is None)
+        return results
 
     def removeContact(self, contact):
         """ Remove the contact from the bucket
@@ -123,3 +139,6 @@ class KBucket(object):
 
     def __len__(self):
         return len(self._contacts)
+
+    def __contains__(self, item):
+        return item in self._contacts
