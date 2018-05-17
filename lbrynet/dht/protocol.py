@@ -4,13 +4,11 @@ import errno
 
 from twisted.internet import protocol, defer
 from lbrynet.core.call_later_manager import CallLaterManager
-
+from error import BUILTIN_EXCEPTIONS, UnknownRemoteException, TimeoutError, TransportNotConnected
 import constants
 import encoding
 import msgtypes
 import msgformat
-from contact import Contact
-from error import BUILTIN_EXCEPTIONS, UnknownRemoteException, TimeoutError
 
 log = logging.getLogger(__name__)
 
@@ -225,7 +223,7 @@ class KademliaProtocol(protocol.DatagramProtocol):
                     log.error("DHT socket error: %s (%i)", err.message, err.errno)
                     raise err
         else:
-            log.warning("transport not connected!")
+            raise TransportNotConnected()
 
     def _sendResponse(self, contact, rpcID, response):
         """ Send a RPC response to the specified contact

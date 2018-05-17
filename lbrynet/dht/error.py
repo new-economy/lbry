@@ -36,3 +36,7 @@ class TimeoutError(Exception):
         msg = 'Timeout connecting to {}'.format(binascii.hexlify(remote_contact_id))
         Exception.__init__(self, msg)
         self.remote_contact_id = remote_contact_id
+
+
+class TransportNotConnected(Exception):
+    pass
