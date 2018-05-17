@@ -8,25 +8,23 @@
 # may be created by processing this file with epydoc: http://epydoc.sf.net
 import binascii
 import hashlib
-import operator
 import struct
 import time
 import logging
 from twisted.internet import defer, error, task
 
-from lbrynet.core.utils import generate_id
+from lbrynet.core.utils import generate_id, DeferredDict
 from lbrynet.core.call_later_manager import CallLaterManager
 from lbrynet.core.PeerManager import PeerManager
-
+from error import TimeoutError
 import constants
 import routingtable
 import datastore
 import protocol
-from error import TimeoutError
 from peerfinder import DHTPeerFinder
-from contact import Contact
 from contact import ContactManager
 from distance import Distance
+from iterativefind import iterativeFind
 
 
 log = logging.getLogger(__name__)
@@ -95,7 +93,7 @@ class Node(MockKademliaHelper):
 
     def __init__(self, node_id=None, udpPort=4000, dataStore=None,
                  routingTableClass=None, networkProtocol=None,
-                 externalIP=None, peerPort=None, listenUDP=None,
+                 externalIP=None, peerPort=3333, listenUDP=None,
                  callLater=None, resolve=None, clock=None, peer_finder=None,
                  peer_manager=None):
         """
@@ -171,45 +169,79 @@ class Node(MockKademliaHelper):
                 log.error("Couldn't bind to port %d. %s", self.port, traceback.format_exc())
                 raise ValueError("%s lbrynet may already be running." % str(e))
         else:
-            log.warning("Already bound to port %d", self._listeningPort.port)
+            log.warning("Already bound to port %s", self._listeningPort)
 
-    def bootstrap_join(self, known_node_addresses, finished_d):
+    @defer.inlineCallbacks
+    def joinNetwork(self, known_node_addresses):
         """
         Attempt to join the dht, retry every 30 seconds if unsuccessful
         :param known_node_addresses: [(str, int)] list of hostnames and ports for known dht seed nodes
-        :param finished_d: (defer.Deferred) called when join succeeds
         """
+
+        known_node_addresses = list(known_node_addresses)
+        known_node_resolution = {}
+
         @defer.inlineCallbacks
         def _resolve_seeds():
-            bootstrap_contacts = []
+            result = {}
             for node_address, port in known_node_addresses:
                 host = yield self.reactor_resolve(node_address)
-                # Create temporary contact information for the list of addresses of known nodes
-                contact = Contact(self._generateID(), host, port, self._protocol)
-                bootstrap_contacts.append(contact)
-            if not bootstrap_contacts:
-                if not self.hasContacts():
-                    log.warning("No known contacts!")
+                result[(node_address, port)] = (host, port)
+            defer.returnValue(result)
+
+        if not known_node_resolution:
+            known_node_resolution = yield _resolve_seeds()
+            # we are one of the seed nodes, don't add ourselves
+            if (self.externalIP, self.port) in known_node_resolution.itervalues():
+                self_host_tuple = None
+                for host_tuple in known_node_resolution:
+                    if (self.externalIP, self.port) == known_node_resolution[host_tuple]:
+                        self_host_tuple = host_tuple
+                        break
+                del known_node_resolution[self_host_tuple]
+                known_node_addresses.remove(self_host_tuple)
+
+        def _ping_contacts(contacts):
+            d = DeferredDict({contact: contact.ping() for contact in contacts}, consumeErrors=True)
+            d.addErrback(lambda err: err.trap(TimeoutError))
+            return d
+
+        @defer.inlineCallbacks
+        def _initialize_routing():
+            bootstrap_contacts = []
+            contact_addresses = {(c.address, c.port): c for c in self.contacts}
+            for seed_tuple, address_tuple in known_node_resolution.iteritems():
+                if address_tuple not in contact_addresses:
+                    host, port = address_tuple
+                    # Create temporary contact information for the list of addresses of known nodes
+                    # The contact node id will be set with the responding node id when we initialize it to None
+                    contact = self.contact_manager.make_contact(None, host, port, self._protocol)
+                    bootstrap_contacts.append(contact)
                 else:
-                    log.info("found contacts")
-                    bootstrap_contacts = self.contacts
-            defer.returnValue(bootstrap_contacts)
+                    for contact in self.contacts:
+                        if contact.address == address_tuple[0] and contact.port == address_tuple[1]:
+                            if not contact.id:
+                                bootstrap_contacts.append(contact)
+                            break
+            ping_result = yield _ping_contacts(bootstrap_contacts)
+            shortlist = ping_result.keys()
+            closest = yield self._iterativeFind(self.node_id, shortlist)
+            yield _ping_contacts(closest)
+            yield self._iterativeFind(self.node_id)
+            if not self.bucketsWithContacts() or not len(self.contacts):
+                yield task.deferLater(self.clock, 5, _iterative_join)
 
-        def _rerun(closest_nodes):
-            if not closest_nodes:
-                log.info("Failed to join the dht, re-attempting in 30 seconds")
-                self.reactor_callLater(30, self.bootstrap_join, known_node_addresses, finished_d)
-            elif not finished_d.called:
-                finished_d.callback(closest_nodes)
+        @defer.inlineCallbacks
+        def _iterative_join():
+            log.info("Attempting to join the DHT network (%s:%i %s) (%i contacts, %i buckets)", self.externalIP, self.port,
+                     self.node_id.encode('hex')[:8], len(self.contacts), self.bucketsWithContacts())
+            yield _initialize_routing()
+            log.info("%s:%i joined the DHT with %i contacts", self.externalIP, self.port, len(self.contacts))
 
-        log.info("Attempting to join the DHT network")
-        d = _resolve_seeds()
-        # Initiate the Kademlia joining sequence - perform a search for this node's own ID
-        d.addCallback(lambda contacts: self._iterativeFind(self.node_id, contacts))
-        d.addCallback(_rerun)
+        yield _iterative_join()
 
     @defer.inlineCallbacks
-    def joinNetwork(self, known_node_addresses=None):
+    def start(self, known_node_addresses=None):
         """ Causes the Node to attempt to join the DHT network by contacting the
         known DHT nodes. This can be called multiple times if the previous attempt
         has failed or if the Node has lost all the contacts.
@@ -222,11 +254,13 @@ class Node(MockKademliaHelper):
         """
 
         self.start_listening()
-        #        #TODO: Refresh all k-buckets further away than this node's closest neighbour
+        yield self._protocol._listening
+        # TODO: Refresh all k-buckets further away than this node's closest neighbour
+        yield self.joinNetwork(known_node_addresses or [])
+
+        self.safe_start_looping_call(self.change_token_lc, constants.tokenSecretChangeInterval)
         # Start refreshing k-buckets periodically, if necessary
-        self.bootstrap_join(known_node_addresses or [], self._joinDeferred)
-        yield self._joinDeferred
-        self.refresh_node_lc.start(constants.checkRefreshInterval)
+        self.safe_start_looping_call(self.refresh_node_lc, constants.checkRefreshInterval)
 
     @property
     def contacts(self):
@@ -603,14 +637,27 @@ class Node(MockKademliaHelper):
     def _refreshNode(self):
         """ Periodically called to perform k-bucket refreshes and data
         replication/republishing as necessary """
-
         yield self._refreshRoutingTable()
         self._dataStore.removeExpiredPeers()
         defer.returnValue(None)
 
+    def _refreshContacts(self):
+        contacts = list(self.contacts)
+        now = self.clock.seconds()
+        dl = []
+        for contact in contacts:
+            if contact.lastInteracted < now - 900:
+                dl.append(self._protocol._ping_queue.enqueue_maybe_ping(contact))
+                d = contact.ping()
+                d.addErrback(lambda err: err.trap(TimeoutError))
+                dl.append(d)
+        log.info("Refresh ping %i peers", len(dl))
+        return defer.DeferredList(dl, consumeErrors=True)
+
     @defer.inlineCallbacks
     def _refreshRoutingTable(self):
-        nodeIDs = self._routingTable.getRefreshList(0, False)
+        nodeIDs = self._routingTable.getRefreshList(0, True)
+        yield self._refreshContacts()
         while nodeIDs:
             searchID = nodeIDs.pop()
             yield self.iterativeFindNode(searchID)
