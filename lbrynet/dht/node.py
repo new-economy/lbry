@@ -124,8 +124,8 @@ class Node(MockKademliaHelper):
         MockKademliaHelper.__init__(self, clock, callLater, resolve, listenUDP)
         self.node_id = node_id or self._generateID()
         self.port = udpPort
-        self.change_token_lc = self.get_looping_call(self.change_token)
-        self.refresh_node_lc = self.get_looping_call(self._refreshNode)
+        self._change_token_lc = self.get_looping_call(self.change_token)
+        self._refresh_node_lc = self.get_looping_call(self._refreshNode)
 
         # Create k-buckets (for storing contacts)
         if routingTableClass is None:
@@ -146,6 +146,7 @@ class Node(MockKademliaHelper):
         self._dataStore = dataStore or datastore.DictDataStore()
         self.peer_manager = peer_manager or PeerManager()
         self.peer_finder = peer_finder or DHTPeerFinder(self, self.peer_manager)
+        self._join_deferred = None
 
     def __del__(self):
         log.warning("unclean shutdown of the dht node")
@@ -155,8 +156,8 @@ class Node(MockKademliaHelper):
     @defer.inlineCallbacks
     def stop(self):
         # stop LoopingCalls:
-        yield self.safe_stop_looping_call(self.refresh_node_lc)
-        yield self.safe_stop_looping_call(self.change_token_lc)
+        yield self.safe_stop_looping_call(self._refresh_node_lc)
+        yield self.safe_stop_looping_call(self._change_token_lc)
         if self._listeningPort is not None:
             yield self._listeningPort.stopListening()
 
@@ -172,34 +173,29 @@ class Node(MockKademliaHelper):
             log.warning("Already bound to port %s", self._listeningPort)
 
     @defer.inlineCallbacks
-    def joinNetwork(self, known_node_addresses):
+    def joinNetwork(self, known_node_addresses=(('jack.lbry.tech', 4455), )):
         """
         Attempt to join the dht, retry every 30 seconds if unsuccessful
         :param known_node_addresses: [(str, int)] list of hostnames and ports for known dht seed nodes
         """
 
-        known_node_addresses = list(known_node_addresses)
+        self._join_deferred = defer.Deferred()
         known_node_resolution = {}
 
         @defer.inlineCallbacks
         def _resolve_seeds():
             result = {}
-            for node_address, port in known_node_addresses:
-                host = yield self.reactor_resolve(node_address)
-                result[(node_address, port)] = (host, port)
+            for host, port in known_node_addresses:
+                node_address = yield self.reactor_resolve(host)
+                result[(host, port)] = node_address
             defer.returnValue(result)
 
         if not known_node_resolution:
             known_node_resolution = yield _resolve_seeds()
             # we are one of the seed nodes, don't add ourselves
             if (self.externalIP, self.port) in known_node_resolution.itervalues():
-                self_host_tuple = None
-                for host_tuple in known_node_resolution:
-                    if (self.externalIP, self.port) == known_node_resolution[host_tuple]:
-                        self_host_tuple = host_tuple
-                        break
-                del known_node_resolution[self_host_tuple]
-                known_node_addresses.remove(self_host_tuple)
+                del known_node_resolution[(self.externalIP, self.port)]
+                known_node_addresses.remove((self.externalIP, self.port))
 
         def _ping_contacts(contacts):
             d = DeferredDict({contact: contact.ping() for contact in contacts}, consumeErrors=True)
@@ -210,33 +206,49 @@ class Node(MockKademliaHelper):
         def _initialize_routing():
             bootstrap_contacts = []
             contact_addresses = {(c.address, c.port): c for c in self.contacts}
-            for seed_tuple, address_tuple in known_node_resolution.iteritems():
-                if address_tuple not in contact_addresses:
-                    host, port = address_tuple
+            for (host, port), ip_address in known_node_resolution.iteritems():
+                if (host, port) not in contact_addresses:
                     # Create temporary contact information for the list of addresses of known nodes
                     # The contact node id will be set with the responding node id when we initialize it to None
-                    contact = self.contact_manager.make_contact(None, host, port, self._protocol)
+                    contact = self.contact_manager.make_contact(None, ip_address, port, self._protocol)
                     bootstrap_contacts.append(contact)
                 else:
                     for contact in self.contacts:
-                        if contact.address == address_tuple[0] and contact.port == address_tuple[1]:
+                        if contact.address == ip_address and contact.port == port:
                             if not contact.id:
                                 bootstrap_contacts.append(contact)
                             break
+            if not bootstrap_contacts:
+                log.warning("no bootstrap contacts to ping")
             ping_result = yield _ping_contacts(bootstrap_contacts)
             shortlist = ping_result.keys()
-            closest = yield self._iterativeFind(self.node_id, shortlist)
-            yield _ping_contacts(closest)
-            yield self._iterativeFind(self.node_id)
-            if not self.bucketsWithContacts() or not len(self.contacts):
-                yield task.deferLater(self.clock, 5, _iterative_join)
+            if not shortlist:
+                log.warning("failed to ping %i bootstrap contacts", len(bootstrap_contacts))
+                defer.returnValue(None)
+            else:
+                # find the closest peers to us
+                closest = yield self._iterativeFind(self.node_id, shortlist)
+                yield _ping_contacts(closest)
+                # query random hashes in our bucket key ranges to fill or split them
+                random_ids_in_range = self._routingTable.getRefreshList(force=True)
+                while random_ids_in_range:
+                    yield self.iterativeFindNode(random_ids_in_range.pop())
+                defer.returnValue(None)
 
         @defer.inlineCallbacks
-        def _iterative_join():
-            log.info("Attempting to join the DHT network (%s:%i %s) (%i contacts, %i buckets)", self.externalIP, self.port,
-                     self.node_id.encode('hex')[:8], len(self.contacts), self.bucketsWithContacts())
+        def _iterative_join(joined_d=None):
+            log.info("Attempting to join the DHT network, %i contacts known so far", len(self.contacts))
+            joined_d = joined_d or defer.Deferred()
             yield _initialize_routing()
-            log.info("%s:%i joined the DHT with %i contacts", self.externalIP, self.port, len(self.contacts))
+            buckets_with_contacts = self.bucketsWithContacts()
+            if buckets_with_contacts < 4:
+                result = yield task.deferLater(self.clock, 1, _iterative_join, joined_d)
+                defer.returnValue(result)
+            elif not joined_d.called:
+                joined_d.callback(None)
+            yield joined_d
+            self._join_deferred.callback(True)
+            defer.returnValue(None)
 
         yield _iterative_join()
 
@@ -258,9 +270,9 @@ class Node(MockKademliaHelper):
         # TODO: Refresh all k-buckets further away than this node's closest neighbour
         yield self.joinNetwork(known_node_addresses or [])
 
-        self.safe_start_looping_call(self.change_token_lc, constants.tokenSecretChangeInterval)
+        self.safe_start_looping_call(self._change_token_lc, constants.tokenSecretChangeInterval)
         # Start refreshing k-buckets periodically, if necessary
-        self.safe_start_looping_call(self.refresh_node_lc, constants.checkRefreshInterval)
+        self.safe_start_looping_call(self._refresh_node_lc, constants.checkRefreshInterval)
 
     @property
     def contacts(self):

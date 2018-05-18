@@ -321,9 +321,8 @@ class TreeRoutingTable(object):
         return False
 
     def bucketsWithContacts(self):
-        count = -1
+        count = 0
         for bucket in self._buckets:
-            if not len(bucket):
-                return count
-            count += 1
+            if len(bucket):
+                count += 1
         return count
