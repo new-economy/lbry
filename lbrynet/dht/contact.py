@@ -11,6 +11,9 @@ class _Contact(object):
     def __init__(self, contactManager, id, ipAddress, udpPort, networkProtocol, firstComm):
         self._contactManager = contactManager
         self._id = id
+        if id is not None:
+            if not len(id) == constants.key_bits / 8:
+                raise ValueError("invalid node id: %s", id.encode('hex'))
         self.address = ipAddress
         self.port = udpPort
         self._networkProtocol = networkProtocol
