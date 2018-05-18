@@ -49,6 +49,25 @@ class TreeRoutingTable(object):
             getTime = reactor.seconds
         self._getTime = getTime
 
+    def get_contacts(self):
+        contacts = []
+        for i in range(len(self._buckets)):
+            for contact in self._buckets[i]._contacts:
+                contacts.append(contact)
+        return contacts
+
+    def _shouldSplit(self, bucketIndex, toAdd):
+        if self._buckets[bucketIndex].keyInRange(self._parentNodeID):
+            return True
+        contacts = self.get_contacts()
+        distance = Distance(self._parentNodeID)
+        contacts.sort(key=lambda c: distance(c.id))
+        if len(contacts) < constants.k:
+            kth_contact = contacts[-1]
+        else:
+            kth_contact = contacts[constants.k-1]
+        return distance(toAdd) < distance(kth_contact.id)
+
     def addContact(self, contact):
         """ Add the given contact to the correct k-bucket; if it already
         exists, its status will be updated
@@ -66,11 +85,12 @@ class TreeRoutingTable(object):
             self._buckets[bucketIndex].addContact(contact)
         except kbucket.BucketFull:
             # The bucket is full; see if it can be split (by checking if its range includes the host node's id)
-            if self._buckets[bucketIndex].keyInRange(self._parentNodeID):
+            if self._shouldSplit(bucketIndex, contact.id):
                 self._splitBucket(bucketIndex)
                 # Retry the insertion attempt
                 return self.addContact(contact)
             else:
+
                 # We can't split the k-bucket
                 #
                 # The 13 page kademlia paper specifies that the least recently contacted node in the bucket
