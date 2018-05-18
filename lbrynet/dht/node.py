@@ -565,12 +565,12 @@ class Node(MockKademliaHelper):
 
         response = {
             'token': self.make_token(rpc_contact.compact_ip()),
-            'contacts': self.findNode(rpc_contact, key)
         }
 
         if self._dataStore.hasPeersForBlob(key):
             response[key] = self._dataStore.getPeersForBlob(key)
-
+        else:
+            response['contacts'] = self.findNode(rpc_contact, key)
         return response
 
     def _generateID(self):
