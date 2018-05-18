@@ -43,9 +43,16 @@ MB = 2 ** 20
 DEFAULT_CONCURRENT_ANNOUNCERS = 100
 
 DEFAULT_DHT_NODES = [
-    ('lbrynet1.lbry.io', 4444),
-    ('lbrynet2.lbry.io', 4444),
-    ('lbrynet3.lbry.io', 4444)
+    ('jack.lbry.tech', 4455),
+    ('jack.lbry.tech', 4456),
+    ('jack.lbry.tech', 4457),
+    ('jack.lbry.tech', 4458),
+    ('jack.lbry.tech', 4458),
+    ('jack.lbry.tech', 4455),
+    ('jack.lbry.tech', 4456),
+    ('jack.lbry.tech', 4457),
+    ('jack.lbry.tech', 4458),
+    ('jack.lbry.tech', 4458)
 ]
 
 settings_decoders = {
@@ -261,7 +268,7 @@ ADJUSTABLE_SETTINGS = {
     'data_dir': (str, default_data_dir),
     'data_rate': (float, .0001),  # points/megabyte
     'delete_blobs_on_remove': (bool, True),
-    'dht_node_port': (int, 4444),
+    'dht_node_port': (int, 4455),
     'download_directory': (str, default_download_dir),
     'download_timeout': (int, 180),
     'is_generous_host': (bool, True),
