@@ -73,6 +73,8 @@ class KBucket(object):
                                contact's ID.
         @type excludeContact: str
 
+        @param sort_distance_to: Sort distance to the id, defaulting to the parent node id. If False don't
+                                 sort the contacts
 
         @raise IndexError: If the number of requested contacts is too large
 
