@@ -654,17 +654,9 @@ class Node(MockKademliaHelper):
         defer.returnValue(None)
 
     def _refreshContacts(self):
-        contacts = list(self.contacts)
-        now = self.clock.seconds()
-        dl = []
-        for contact in contacts:
-            if contact.lastInteracted < now - 900:
-                dl.append(self._protocol._ping_queue.enqueue_maybe_ping(contact))
-                d = contact.ping()
-                d.addErrback(lambda err: err.trap(TimeoutError))
-                dl.append(d)
-        log.info("Refresh ping %i peers", len(dl))
-        return defer.DeferredList(dl, consumeErrors=True)
+        return defer.DeferredList(
+            [self._protocol._ping_queue.enqueue_maybe_ping(contact) for contact in self.contacts]
+        )
 
     @defer.inlineCallbacks
     def _refreshRoutingTable(self):
