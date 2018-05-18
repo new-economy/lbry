@@ -27,49 +27,53 @@ class PingQueue(object):
         self._enqueued_contacts = {}
         self._semaphore = defer.DeferredSemaphore(1)
         self._ping_semaphore = defer.DeferredSemaphore(constants.alpha)
-        self._process_lc = node.get_looping_call(self._process)
-
-    def _maybe_ping(self, contact):
-        if contact.contact_is_good is not None:
-            return defer.succeed(None)
-        d = contact.ping()
-        d.addErrback(lambda err: err.trap(TimeoutError))
-        return d
+        self._process_lc = node.get_looping_call(self._semaphore.run, self._process)
+        self._delay = 300
 
     def _add_contact(self, contact):
         if contact in self._enqueued_contacts:
             return defer.succeed(None)
-        self._enqueued_contacts[contact] = self._get_time() + constants.refreshTimeout / 4
+        self._enqueued_contacts[contact] = self._get_time() + self._delay
         self._queue.append(contact)
         return defer.succeed(None)
 
+    @defer.inlineCallbacks
     def _process(self):
         if not len(self._queue):
-            return defer.succeed(None)
+            defer.returnValue(None)
         contact = self._queue.popleft()
         now = self._get_time()
 
+        # if the oldest contact in the queue isn't old enough to be pinged, add it back to the queue and return
         if now < self._enqueued_contacts[contact]:
             self._queue.appendleft(contact)
-            return defer.succeed(None)
+            defer.returnValue(None)
 
-        def _remove_from_queue(result, c):
-            if c in self._enqueued_contacts:
-                del self._enqueued_contacts[c]
-            return result
+        def _ping(contact):
+            d = contact.ping()
+            d.addErrback(lambda err: err.trap(TimeoutError))
+            return d
 
-        dl = []
         pinged = []
+        checked = []
         while now > self._enqueued_contacts[contact]:
-            d = self._ping_semaphore.run(self._maybe_ping, contact)
-            d.addCallback(_remove_from_queue, contact)
-            dl.append(d)
+            checked.append(contact)
+            if contact.contact_is_good is None:
+                pinged.append(contact)
             if not len(self._queue):
                 break
-            pinged.append(contact)
             contact = self._queue.popleft()
-        finished = defer.DeferredList(dl)
-        return finished
+            if not now > self._enqueued_contacts[contact]:
+                checked.append(contact)
+        # log.info("ping %i/%i peers", len(pinged), len(checked))
+
+        yield defer.DeferredList([self._ping_semaphore.run(_ping, contact) for contact in pinged])
+
+        for contact in checked:
+            if contact in self._enqueued_contacts:
+                del self._enqueued_contacts[contact]
+
+        defer.returnValue(None)
 
     def start(self):
         return self._node.safe_start_looping_call(self._process_lc, 60)
