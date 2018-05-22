@@ -1,6 +1,9 @@
+import struct
 import json
 import logging
 import argparse
+import hashlib
+from copy import deepcopy
 from urllib import urlopen
 from twisted.internet import reactor, defer
 from twisted.web import resource
@@ -9,9 +12,9 @@ from lbrynet import conf
 from lbrynet.dht import constants
 from lbrynet.dht.node import Node
 from lbrynet.dht.error import TransportNotConnected
-from lbrynet.core.utils import generate_id
 from lbrynet.core.log_support import configure_console, configure_twisted
 from lbrynet.daemon.auth.server import AuthJSONRPCServer
+
 # configure_twisted()
 conf.initialize_settings()
 configure_console()
@@ -21,11 +24,33 @@ log.addHandler(lbrynet_handler)
 log.setLevel(logging.INFO)
 
 
+def node_id_supplier(seed="jack.lbry.tech"):  # simple deterministic node id generator
+    h = hashlib.sha384()
+    h.update(seed)
+    while True:
+        next_id = h.digest()
+        yield next_id
+        h = hashlib.sha384()
+        h.update(seed)
+        h.update(next_id)
+
+
 def get_external_ip():
     response = json.loads(urlopen("https://api.lbry.io/ip").read())
     if not response['success']:
         raise ValueError("failed to get external ip")
     return response['data']['ip']
+
+
+def format_contact(contact):
+    return {
+        "node_id": contact.id.encode('hex'),
+        "address": contact.address,
+        "port": contact.port,
+        "lastReplied": contact.lastReplied,
+        "lastRequested": contact.lastRequested,
+        "failedRPCs": contact.failedRPCs
+    }
 
 
 class MultiSeedRPCServer(AuthJSONRPCServer):
@@ -34,7 +59,8 @@ class MultiSeedRPCServer(AuthJSONRPCServer):
         self.port = None
         self.rpc_port = rpc_port
         self.external_ip = get_external_ip()
-        self._nodes = [Node(node_id=generate_id(), udpPort=starting_node_port+i, externalIP=self.external_ip)
+        node_id_gen = node_id_supplier()
+        self._nodes = [Node(node_id=next(node_id_gen), udpPort=starting_node_port+i, externalIP=self.external_ip)
                        for i in range(nodes)]
         self._own_addresses = [(self.external_ip, starting_node_port+i) for i in range(nodes)]
         reactor.addSystemEventTrigger('after', 'startup', self.start)
@@ -74,17 +100,29 @@ class MultiSeedRPCServer(AuthJSONRPCServer):
     def jsonrpc_get_node_ids(self):
         return defer.succeed([node.node_id.encode('hex') for node in self._nodes])
 
-    def jsonrpc_node_routing_table(self, node_id):
-        def format_contact(contact):
-            return {
-                "node_id": contact.id.encode('hex'),
-                "address": contact.address,
-                "port": contact.port,
-                "lastReplied": contact.lastReplied,
-                "lastRequested": contact.lastRequested,
-                "failedRPCs": contact.failedRPCs
-            }
+    def jsonrpc_node_datastore(self, node_id):
+        def format_datastore(node):
+            datastore = deepcopy(node._dataStore._dict)
+            result = {}
+            for key, values in datastore.iteritems():
+                contacts = []
+                for (value, last_published, originally_published, original_publisher_id) in values:
+                    host = ".".join([str(ord(d)) for d in value[:4]])
+                    port, = struct.unpack('>H', value[4:6])
+                    peer_node_id = value[6:]
+                    contact_dict = format_contact(node.contact_manager.make_contact(peer_node_id, host, port))
+                    contact_dict['lastPublished'] = last_published
+                    contact_dict['originallyPublished'] = originally_published
+                    contact_dict['originalPublisherID'] = original_publisher_id
+                    contacts.append(contact_dict)
+                result[key.encode('hex')] = contacts
+            return result
 
+        for node in self._nodes:
+            if node.node_id == node_id.decode('hex'):
+                return defer.succeed(format_datastore(node))
+
+    def jsonrpc_node_routing_table(self, node_id):
         def format_bucket(bucket):
             return {
                 "contacts": [format_contact(contact) for contact in bucket._contacts],
