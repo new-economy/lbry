@@ -54,15 +54,20 @@ class _Contact(object):
         :return: False if contact is bad, None if contact is unknown, or True if contact is good
         """
         failures = self.failures
+        now = self.getTime()
+        delay = constants.refreshTimeout / 4
+
         if failures:
             if self.lastReplied and len(failures) >= 2 and self.lastReplied < failures[-2]:
                 return False
+            elif self.lastReplied and len(failures) >= 2 and self.lastReplied > failures[-2]:
+                pass  # handled below
             elif len(failures) >= 2:
                 return False
-        now = self.getTime()
-        if self.lastReplied and self.lastReplied > now - constants.refreshTimeout:
+
+        if self.lastReplied and self.lastReplied > now - delay:
             return True
-        if self.lastReplied and self.lastRequested and self.lastRequested > now - constants.refreshTimeout:
+        if self.lastReplied and self.lastRequested and self.lastRequested > now - delay:
             return True
         return None
 
@@ -91,13 +96,13 @@ class _Contact(object):
         if not self._id:
             self._id = id
 
-    def set_last_replied(self, timestamp):
-        self.lastReplied = int(timestamp)
+    def update_last_replied(self):
+        self.lastReplied = int(self.getTime())
 
-    def set_last_requested(self, timestamp):
-        self.lastRequested = int(timestamp)
+    def update_last_requested(self):
+        self.lastRequested = int(self.getTime())
 
-    def inc_failed_rpc(self):
+    def update_last_failed(self):
         failures = self._contactManager._rpc_failures.get((self.address, self.port), [])
         failures.append(self.getTime())
         self._contactManager._rpc_failures[(self.address, self.port)] = failures

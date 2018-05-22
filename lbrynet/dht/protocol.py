@@ -148,11 +148,11 @@ class KademliaProtocol(protocol.DatagramProtocol):
                 self._node.removeContact(contact)
             except (ValueError, IndexError):
                 pass
-            contact.inc_failed_rpc()
+            contact.update_last_failed()
             return failure
 
         def _update_contact(result):  # refresh the contact in the routing table
-            contact.set_last_replied(self._node.clock.seconds())
+            contact.update_last_replied()
             d = self._node.addContact(contact)
             d.addCallback(lambda _: result)
             return d
@@ -213,7 +213,7 @@ class KademliaProtocol(protocol.DatagramProtocol):
         if isinstance(message, msgtypes.RequestMessage):
             # This is an RPC method request
             remoteContact = self._node.contact_manager.make_contact(message.nodeID, address[0], address[1], self)
-            remoteContact.set_last_requested(self._node.clock.seconds())
+            remoteContact.update_last_requested()
             # only add a requesting contact to the routing table if it has replied to one of our requests
             if remoteContact.contact_is_good is True:
                 df = self._node.addContact(remoteContact)
