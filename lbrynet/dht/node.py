@@ -236,18 +236,21 @@ class Node(MockKademliaHelper):
                 defer.returnValue(None)
 
         @defer.inlineCallbacks
-        def _iterative_join(joined_d=None):
+        def _iterative_join(joined_d=None, last_buckets_with_contacts=None):
             log.info("Attempting to join the DHT network, %i contacts known so far", len(self.contacts))
             joined_d = joined_d or defer.Deferred()
             yield _initialize_routing()
             buckets_with_contacts = self.bucketsWithContacts()
-            if buckets_with_contacts < 4:
-                result = yield task.deferLater(self.clock, 1, _iterative_join, joined_d)
-                defer.returnValue(result)
+            if last_buckets_with_contacts and last_buckets_with_contacts == buckets_with_contacts:
+                if not joined_d.called:
+                    joined_d.callback(True)
+            elif buckets_with_contacts < 4:
+                self.reactor_callLater(1, _iterative_join, joined_d, buckets_with_contacts)
             elif not joined_d.called:
                 joined_d.callback(None)
             yield joined_d
-            self._join_deferred.callback(True)
+            if not self._join_deferred.called:
+                self._join_deferred.callback(True)
             defer.returnValue(None)
 
         yield _iterative_join()
