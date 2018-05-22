@@ -6,7 +6,7 @@ from lbrynet.dht import node, hashannouncer
 from lbrynet.database.storage import SQLiteStorage
 from lbrynet.core.RateLimiter import RateLimiter
 from lbrynet.core.utils import generate_id
-from lbrynet.core.PaymentRateManager import BasePaymentRateManager
+from lbrynet.core.PaymentRateManager import BasePaymentRateManager, OnlyFreePaymentsManager
 from lbrynet.core.BlobAvailability import BlobAvailabilityTracker
 
 log = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class Session(object):
         self.dht_node_class = dht_node_class
         self.dht_node = None
         self.base_payment_rate_manager = BasePaymentRateManager(blob_data_payment_rate)
-        self.payment_rate_manager = self.base_payment_rate_manager
+        self.payment_rate_manager = OnlyFreePaymentsManager()
         # self.payment_rate_manager_class = payment_rate_manager_class or NegotiatedPaymentRateManager
         # self.is_generous = is_generous
         self.storage = storage or SQLiteStorage(self.db_dir)
