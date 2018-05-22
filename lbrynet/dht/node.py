@@ -424,7 +424,7 @@ class Node(MockKademliaHelper):
                 find_result = {key: peers}
             else:
                 # Ok, value does not exist in DHT at all
-                log.info("Didnt find the value")
+                log.info("Didnt find the value (%s)", key.encode('hex')[:12])
 
         expanded_peers = []
         if find_result:
@@ -479,7 +479,7 @@ class Node(MockKademliaHelper):
             contact = self._routingTable.getContact(contactID)
             df = defer.Deferred()
             df.callback(contact)
-        except ValueError:
+        except (ValueError, IndexError):
             def parseResults(nodes):
                 node_ids = [c.id for c in nodes]
                 if contactID in nodes:
