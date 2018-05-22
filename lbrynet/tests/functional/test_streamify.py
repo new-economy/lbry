@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 
-from hashlib import md5
+from Crypto.Hash import MD5
 from twisted.trial.unittest import TestCase
 from twisted.internet import defer, threads
 
@@ -67,7 +67,7 @@ class TestStreamify(TestCase):
             blob_dir=self.blob_dir, peer_port=5553,
             use_upnp=False, rate_limiter=rate_limiter, wallet=wallet,
             blob_tracker_class=DummyBlobAvailabilityTracker,
-            is_generous=self.is_generous, external_ip="127.0.0.1", dht_node_class=mocks.Node
+            is_generous=self.is_generous, external_ip="127.0.0.1"
         )
 
         self.lbry_file_manager = EncryptedFileManager(self.session, sd_identifier)
@@ -112,7 +112,7 @@ class TestStreamify(TestCase):
         self.session = Session(
             conf.ADJUSTABLE_SETTINGS['data_rate'][1], db_dir=self.db_dir, node_id="abcd",
             peer_finder=peer_finder, hash_announcer=hash_announcer,
-            blob_dir=self.blob_dir, peer_port=5553, dht_node_class=mocks.Node,
+            blob_dir=self.blob_dir, peer_port=5553,
             use_upnp=False, rate_limiter=rate_limiter, wallet=wallet,
             blob_tracker_class=DummyBlobAvailabilityTracker, external_ip="127.0.0.1"
         )
@@ -127,7 +127,7 @@ class TestStreamify(TestCase):
             self.assertTrue(lbry_file.sd_hash, sd_hash)
             yield lbry_file.start()
             f = open('test_file')
-            hashsum = md5()
+            hashsum = MD5.new()
             hashsum.update(f.read())
             self.assertEqual(hashsum.hexdigest(), "68959747edc73df45e45db6379dd7b3b")
 

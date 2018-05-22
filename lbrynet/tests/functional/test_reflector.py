@@ -27,6 +27,7 @@ class TestReflector(unittest.TestCase):
         wallet = mocks.Wallet()
         peer_manager = PeerManager.PeerManager()
         peer_finder = mocks.PeerFinder(5553, peer_manager, 2)
+        hash_announcer = mocks.Announcer()
         sd_identifier = StreamDescriptor.StreamDescriptorIdentifier()
 
         self.expected_blobs = [
@@ -53,15 +54,14 @@ class TestReflector(unittest.TestCase):
             db_dir=self.db_dir,
             node_id="abcd",
             peer_finder=peer_finder,
+            hash_announcer=hash_announcer,
+            dht_node_class=mocks.Node,
             blob_dir=self.blob_dir,
             peer_port=5553,
-            dht_node_port=4444,
             use_upnp=False,
             wallet=wallet,
             blob_tracker_class=mocks.BlobAvailabilityTracker,
-            external_ip="127.0.0.1",
-            dht_node_class=mocks.Node,
-            hash_announcer=mocks.Announcer()
+            external_ip="127.0.0.1"
         )
 
         self.lbry_file_manager = EncryptedFileManager.EncryptedFileManager(self.session,
@@ -74,15 +74,14 @@ class TestReflector(unittest.TestCase):
             db_dir=self.server_db_dir,
             node_id="abcd",
             peer_finder=peer_finder,
+            hash_announcer=hash_announcer,
+            dht_node_class=mocks.Node,
             blob_dir=self.server_blob_dir,
-            peer_port=5554,
-            dht_node_port=4443,
+            peer_port=5553,
             use_upnp=False,
             wallet=wallet,
             blob_tracker_class=mocks.BlobAvailabilityTracker,
-            external_ip="127.0.0.1",
-            dht_node_class=mocks.Node,
-            hash_announcer=mocks.Announcer()
+            external_ip="127.0.0.1"
         )
 
         self.server_blob_manager = BlobManager.DiskBlobManager(self.server_blob_dir,
@@ -364,7 +363,6 @@ class TestReflector(unittest.TestCase):
         d.addCallback(lambda _: verify_blob_on_reflector())
         d.addCallback(lambda _: verify_stream_on_reflector())
         return d
-
 
 def iv_generator():
     iv = 0

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from cryptography.hazmat.primitives.ciphers.algorithms import AES
+from Crypto.Cipher import AES
 import mock
 from twisted.trial import unittest
 from twisted.internet import defer
@@ -12,13 +12,14 @@ from lbrynet.file_manager import EncryptedFileCreator
 from lbrynet.file_manager import EncryptedFileManager
 from lbrynet.tests import mocks
 from lbrynet.tests.util import mk_db_and_blob_dir, rm_db_and_blob_dir
+# import logging; logging.getLogger().addHandler(logging.StreamHandler()); logging.getLogger().setLevel(logging.INFO)
 
 MB = 2**20
 
 
 def iv_generator():
     while True:
-        yield '3' * (AES.block_size / 8)
+        yield '3' * AES.block_size
 
 
 class CreateEncryptedFileTest(unittest.TestCase):
@@ -31,6 +32,7 @@ class CreateEncryptedFileTest(unittest.TestCase):
 
         self.session = mock.Mock(spec=Session.Session)(None, None)
         self.session.payment_rate_manager.min_blob_data_payment_rate = 0
+
         self.blob_manager = BlobManager.DiskBlobManager(self.tmp_blob_dir, SQLiteStorage(self.tmp_db_dir))
         self.session.blob_manager = self.blob_manager
         self.session.storage = self.session.blob_manager.storage
@@ -47,7 +49,7 @@ class CreateEncryptedFileTest(unittest.TestCase):
     @defer.inlineCallbacks
     def create_file(self, filename):
         handle = mocks.GenFile(3*MB, '1')
-        key = '2' * (AES.block_size / 8)
+        key = '2'*AES.block_size
         out = yield EncryptedFileCreator.create_lbry_file(self.session, self.file_manager, filename, handle,
                                                           key, iv_generator())
         defer.returnValue(out)
@@ -70,7 +72,6 @@ class CreateEncryptedFileTest(unittest.TestCase):
         # this comes from the database, the blobs returned are sorted
         sd_info = yield get_sd_info(self.session.storage, lbry_file.stream_hash, include_blobs=True)
         self.assertDictEqual(sd_info, sd_file_info)
-        self.assertListEqual(sd_info['blobs'], sd_file_info['blobs'])
         self.assertEqual(sd_info['stream_hash'], expected_stream_hash)
         self.assertEqual(len(sd_info['blobs']), 3)
         self.assertNotEqual(sd_info['blobs'][0]['length'], 0)
