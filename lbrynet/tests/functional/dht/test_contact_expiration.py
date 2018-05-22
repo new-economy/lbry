@@ -1,7 +1,6 @@
 import logging
 from twisted.internet import defer
 from dht_test_environment import TestKademliaBase
-import logging; logging.getLogger().addHandler(logging.StreamHandler()); logging.getLogger().setLevel(logging.INFO)
 
 log = logging.getLogger()
 

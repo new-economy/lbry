@@ -4,8 +4,6 @@ from twisted.internet import defer, task
 from lbrynet.dht.node import Node
 from mock_transport import resolve, listenUDP, MOCK_DHT_SEED_DNS, mock_node_generator
 
-# log = logging.getLogger()
-
 
 log = logging.getLogger(__name__)
 
