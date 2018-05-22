@@ -2877,7 +2877,7 @@ class Daemon(AuthJSONRPCServer):
         peers = yield finished_deferred
         results = [
             {
-                "node_id": node_id,
+                "node_id": node_id.encode('hex'),
                 "host": host,
                 "port": port
             }
